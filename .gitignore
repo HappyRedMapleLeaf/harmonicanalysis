@@ -1,2 +1,5 @@
 .vscode
-*.out
+.clang-format
+external
+data
+build

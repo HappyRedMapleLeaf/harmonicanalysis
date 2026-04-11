@@ -11,3 +11,7 @@ mongolian/tuvan throat singing?? (specifically, the kargyraa undertone singing s
 wtf i can add a shitton of higher overtones to a sawtooth wave and make it sound an octave lower?? ->
 wtf i can then remove some of these higher overtones, adjust the amplitudes of them a bit, and then it'll suddenly sound like a root and a fifth sawtooth playing at the same time?? ->
 sawtooth waves have their harmonics at specific phases to line up and create the saw shaped discontinuity, so what if i mess around with these phases?
+
+### step 0
+.wav file generation with just a basic sawtooth
+done on apr 11 2026
