@@ -17,7 +17,10 @@ sawtooth waves have their harmonics at specific phases to line up and create the
 done on apr 11 2026
 
 ### step 1
-gui with live playback and sliders for fundamental frequency and number of overtones
+cli live playback with portaudio
+
+### step 2
+qt gui with live playback and sliders for fundamental frequency and number of overtones
 
 ### step 3
 displays of what one period's waveform looks like

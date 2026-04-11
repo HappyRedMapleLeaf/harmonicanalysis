@@ -25,7 +25,7 @@ void calculate_harmonics(double fundamental, int n_harmonics, std::vector<double
 /// arg 2: int>0: number of harmonics (1 meaning only fundamental)
 int main(int argc, char* argv[]) {
     if (argc != 3) {
-        std::cout << "requires 3 arguments" << std::endl;
+        std::cout << "requires 2 arguments" << std::endl;
         return 1;
     }
     double fundamental = std::atof(argv[1]);
