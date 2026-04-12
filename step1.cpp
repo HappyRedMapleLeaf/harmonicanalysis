@@ -35,19 +35,22 @@ public: // todo: i don't think everything needs to be public
         time_rad(0.0), freq_hz(freq), circ_buf() {}
 
     int pa_callback(const void *input, void *output, unsigned long frameCount,
-                    const PaStreamCallbackTimeInfo* timeInfo,
+                    const PaStreamCallbackTimeInfo *timeInfo,
                     PaStreamCallbackFlags statusFlags) {
-        float *out_p = (float*)output;
-        
-        for (size_t i = 0; i < frameCount; i++) {
-            // float sample = this->circ_buf.pop();
-            // *(out_p++) = sample;  // left
-            // *(out_p++) = sample;  // right (same sample)
-            *(out_p++) = 0.0;  // left
-            *(out_p++) = 0.0;  // right (same sample)
+
+        assert(output != NULL);
+
+        // for some reason the memory layout of the callback is different between the C and C++??
+        // todo: look into where and why and how
+        float **out = static_cast<float **>(output);
+
+        for (size_t i = 0; i < frameCount; ++i) {
+            float sample = this->circ_buf.pop();
+            out[0][i] = sample; // left
+            out[1][i] = sample; // right (same sample)
         }
 
-        return 0;
+        return paContinue;
     }
 
     // add samples to buffer as fast as it can
@@ -120,7 +123,7 @@ void sine_cli(double f) {
 
 
     bool playing = false;
-    // gen.program_running = true;
+    gen.program_running = true;
 
     std::cout << "Options:" << std::endl <<
         "p: play" << std::endl <<
@@ -130,7 +133,7 @@ void sine_cli(double f) {
     std::string option = "";
     
     // create a thread that updates buffer
-    // std::thread sample_writer(&ToneGenerator::push_samples, &gen);
+    std::thread sample_writer(&ToneGenerator::push_samples, &gen);
 
     while (option != "e") {
         std::cin >> option;
@@ -161,8 +164,8 @@ void sine_cli(double f) {
     }
 
     // signal to stop then join the thread
-    // gen.program_running = false;
-    // sample_writer.join();
+    gen.program_running = false;
+    sample_writer.join();
 
     // cleanup
     
@@ -179,12 +182,12 @@ int main(int argc, char* argv[]) {
     try {
         sine_cli(fundamental);
     } catch (const portaudio::PaException &e) {
-		std::cout << "A PortAudio error occurred: " << e.paErrorText() << std::endl;
+        std::cout << "A PortAudio error occurred: " << e.paErrorText() << std::endl;
         throw;
-	} catch (const portaudio::PaCppException &e) {
-		std::cout << "A PortAudioCpp error occurred: " << e.what() << std::endl;
+    } catch (const portaudio::PaCppException &e) {
+        std::cout << "A PortAudioCpp error occurred: " << e.what() << std::endl;
         throw;
-	}
+    }
 
     return 0;
 }
