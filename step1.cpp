@@ -11,56 +11,161 @@
 #include <atomic>
 #include <thread>
 
+// status: portaudio c++ seems to be segfaulting like a mfer. try the sine.cxx example and see if i get the same thing
+#include "portaudiocpp/PortAudioCpp.hxx"
+
 #include "circ_buf.h"
 
-#include "external/portaudio/include/portaudio.h"
-
 constexpr size_t SINESTATE_BUF_SIZE = 1024;
-constexpr int SAMPLE_RATE_HZ = 44100;
+constexpr double SAMPLE_RATE_HZ = 44100;
 constexpr double SAMPLE_TIME_S = 1.0 / SAMPLE_RATE_HZ;
 constexpr double SAMPLE_TIME_RAD = SAMPLE_TIME_S * 2 * std::numbers::pi;
 
-// todo: proper error handling. maybe even consider gotos...
-// todo: does the callback accept and clamp floats between +-1 or do we have to do that?
-// (try it and see what happens)
-
-struct SineState {
+// todo: move somewhere else
+class ToneGenerator {
+public: // todo: i don't think everything needs to be public
     std::atomic_bool program_running; // this is NOT whether there is playback or not.
                                       // Should be on for the whole duration of the program
+                                      // used to signal producer thread
     double time_rad;
     double freq_hz;
-    CircBuf1Min buf;
+    CircBuf1Min circ_buf;
+
+    ToneGenerator(double freq) : program_running(false), 
+        time_rad(0.0), freq_hz(freq), circ_buf() {}
+
+    int pa_callback(const void *input, void *output, unsigned long frameCount,
+                    const PaStreamCallbackTimeInfo* timeInfo,
+                    PaStreamCallbackFlags statusFlags) {
+        float *out_p = (float*)output;
+        
+        for (size_t i = 0; i < frameCount; i++) {
+            // float sample = this->circ_buf.pop();
+            // *(out_p++) = sample;  // left
+            // *(out_p++) = sample;  // right (same sample)
+            *(out_p++) = 0.0;  // left
+            *(out_p++) = 0.0;  // right (same sample)
+        }
+
+        return 0;
+    }
+
+    // add samples to buffer as fast as it can
+    // todo: switch to something lazier - precompute one period (slightly off frequency but probs ok)
+    void push_samples() {
+        double next_sample = 0.0;
+        while (this->program_running) {
+            if (this->circ_buf.push(next_sample) != 0) {
+                continue;
+            }
+            next_sample = 0.5 * std::sin(this->time_rad * this->freq_hz);
+            this->time_rad += SAMPLE_TIME_RAD;
+        }
+    }
 };
 
-int sine_callback(const void *input, void *output, unsigned long frameCount,
-                  const PaStreamCallbackTimeInfo* timeInfo,
-                  PaStreamCallbackFlags statusFlags, void *userData) {
-    SineState *state = (SineState*)userData;
+void sine_cli(double f) {
+    ToneGenerator gen(f);
 
-    // unused: timeInfo
-    // unused: input
+    // global portaudio init
+    portaudio::AutoSystem autoSys;
+    portaudio::System &sys = portaudio::System::instance();
 
-    float *out_p = (float*)output;
+    // set up stream params
+    portaudio::DirectionSpecificStreamParameters outParams(
+        sys.defaultOutputDevice(), 2, portaudio::FLOAT32, false,
+        sys.defaultOutputDevice().defaultLowOutputLatency(), NULL);
+    const portaudio::StreamParameters params(
+        portaudio::DirectionSpecificStreamParameters::null(), outParams,
+        SAMPLE_RATE_HZ, paFramesPerBufferUnspecified, paNoFlag);
+
+    // create and open stream, set callback
+    portaudio::MemFunCallbackStream<ToneGenerator> stream(params, gen, &ToneGenerator::pa_callback);
+
+    // PaDeviceIndex n_devices = Pa_GetDeviceCount();
+    // if (n_devices < 0) {
+    //     Pa_Terminate();
+    //     return 1;
+    //     std::cout << "ERROR: Pa_GetDeviceCount returned " << n_devices << std::endl;
+    // }
+
+    // PaStreamParameters output_params = {
+    //     .device = 0,
+    //     .channelCount = 2,
+    //     .sampleFormat = paFloat32,
+    //     .suggestedLatency = 0.0,
+    //     .hostApiSpecificStreamInfo = NULL
+    // };
+
+    // std::cout << "Available devies:" << std::endl;
+    // for (PaDeviceIndex i = 0; i < n_devices; i++) {
+    //     const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
+    //     output_params.device = i;
+    //     output_params.suggestedLatency = info->defaultLowOutputLatency;
+    //     if (Pa_IsFormatSupported(NULL, &output_params, SAMPLE_RATE_HZ) != 0) {
+    //         break;
+    //     }
+    //     std::cout << i << ": " << info->name << std::endl;
+    // }
+
+    // PaDeviceIndex device;
+    // std::cout << "Select device: ";
+    // std::cin >> device;
+    // output_params.device = device;
+    // output_params.suggestedLatency = Pa_GetDeviceInfo(device)->defaultLowOutputLatency;
+    // std::cout << std::endl;
+
+    // err = Pa_OpenStream(&stream, NULL, &output_params, SAMPLE_RATE_HZ, paFramesPerBufferUnspecified,
+    //                     paNoFlag, sine_callback, (void*)&state);
+
+
+    bool playing = false;
+    // gen.program_running = true;
+
+    std::cout << "Options:" << std::endl <<
+        "p: play" << std::endl <<
+        "s: stop" << std::endl <<
+        "e: exit" << std::endl;
     
-    for (size_t i = 0; i < frameCount; i++) {
-        float sample = state->buf.pop();
-        *(out_p++) = sample;  // left
-        *(out_p++) = sample;  // right (same sample)
-    }
+    std::string option = "";
+    
+    // create a thread that updates buffer
+    // std::thread sample_writer(&ToneGenerator::push_samples, &gen);
 
-    return 0;
-}
-
-// add samples to buffer as fast as it can
-void push_samples(SineState *state) {
-    double next_sample = 0.0;
-    while (state->program_running) {
-        if (state->buf.push(next_sample) != 0) {
-            continue;
+    while (option != "e") {
+        std::cin >> option;
+        if (option == "p") {
+            // start playback if not playing
+            if (!playing) {
+                std::cout << "starting" << std::endl;
+                stream.start();
+                playing = true;
+            } else {
+                std::cout << "already started" << std::endl;
+            }
+        } else if (option == "s") {
+            // stop playback if playing
+            if (playing) {
+                std::cout << "stopping" << std::endl;
+                stream.stop();
+                playing = false;
+            } else {
+                std::cout << "already stopped" << std::endl;
+            }
         }
-        next_sample = 0.5 * std::sin(state->time_rad * state->freq_hz);
-        state->time_rad += SAMPLE_TIME_RAD;
     }
+
+    if (playing) {
+        std::cout << "exited, stopping" << std::endl;
+        stream.stop();
+    }
+
+    // signal to stop then join the thread
+    // gen.program_running = false;
+    // sample_writer.join();
+
+    // cleanup
+    
 }
 
 /// arg 1: real>0: fundamental frequency
@@ -71,96 +176,15 @@ int main(int argc, char* argv[]) {
     }
     double fundamental = std::atof(argv[1]);
 
-    std::cout << "doing some magic with " << fundamental << "Hz" << std::endl;
-
-    PaError err = Pa_Initialize();
-    if (err != paNoError) {
-        std::cout << "PortAudio could not initialize: " << Pa_GetErrorText(err) << std::endl;
-        Pa_Terminate();
-        return 1;
-    }
-
-    PaStream *stream;
-
-    SineState state;
-    state.freq_hz = fundamental;
-    state.program_running = true;
-    state.time_rad = 0.0;
-
-    // todo: https://portaudio.com/docs/v19-doxydocs/querying_devices.html
-    err = Pa_OpenDefaultStream(&stream, 0, 2, paFloat32, SAMPLE_RATE_HZ, paFramesPerBufferUnspecified,
-                               sine_callback, (void*)&state);
-    if (err != paNoError) {
-        std::cout << "PortAudio could not open default stream: " << Pa_GetErrorText(err) << std::endl;
-        Pa_Terminate();
-        return 1;
-    }
-
-    bool playing = false;
-
-    std::cout << "Options:" << std::endl <<
-        "p: play" << std::endl <<
-        "s: stop" << std::endl <<
-        "e: exit" << std::endl;
-    
-    std::string option = "";
-    
-    // create a thread that updates buffer
-    std::thread sample_writer(push_samples, &state);
-
-    while (option != "e") {
-        std::cin >> option;
-        if (option == "p") {
-            // start playback if not playing
-            if (!playing) {
-                std::cout << "starting" << std::endl;
-                err = Pa_StartStream(stream);
-                if (err != paNoError) {
-                    std::cout << "PortAudio could not start stream: " << Pa_GetErrorText(err) << std::endl;
-                    Pa_Terminate();
-                    return 1;
-                }
-                playing = true;
-            } else {
-                std::cout << "already started" << std::endl;
-            }
-        } else if (option == "s") {
-            // stop playback if playing
-            if (playing) {
-                std::cout << "stopping" << std::endl;
-                err = Pa_StopStream(stream);
-                if (err != paNoError) {
-                    std::cout << "PortAudio could not stop stream: " << Pa_GetErrorText(err) << std::endl;
-                    Pa_Terminate();
-                    return 1;
-                }
-                playing = false;
-            } else {
-                std::cout << "already stopped" << std::endl;
-            }
-        }
-    }
-
-    if (playing) {
-        std::cout << "exited, stopping" << std::endl;
-        err = Pa_StopStream(stream);
-        if (err != paNoError) {
-            std::cout << "PortAudio could not stop stream: " << Pa_GetErrorText(err) << std::endl;
-            Pa_Terminate();
-            return 1;
-        }
-    }
-
-    // signal to stop then join the thread
-    state.program_running = false;
-    sample_writer.join();
-
-    // cleanup
-    err = Pa_Terminate();
-    if (err != paNoError) {
-        std::cout << "PortAudio could not terminate: " << Pa_GetErrorText(err) << std::endl;
-        return 1;
-    }
+    try {
+        sine_cli(fundamental);
+    } catch (const portaudio::PaException &e) {
+		std::cout << "A PortAudio error occurred: " << e.paErrorText() << std::endl;
+        throw;
+	} catch (const portaudio::PaCppException &e) {
+		std::cout << "A PortAudioCpp error occurred: " << e.what() << std::endl;
+        throw;
+	}
 
     return 0;
 }

@@ -1,4 +1,4 @@
-PA_OPTIONS = external/portaudio/lib/.libs/libportaudio.a -Iexternal/portaudio/include -lrt -lm -lasound -pthread
+PA_OPTIONS = external/portaudio/lib/.libs/libportaudio.a external/portaudio/bindings/cpp/lib/.libs/libportaudiocpp.a -Iexternal/portaudio/include -Iexternal/portaudio/bindings/cpp/include -lrt -lm -lasound -pthread
 INCLUDE_OPTIONS = -Iinc
 
 all: step1
