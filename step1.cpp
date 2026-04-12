@@ -11,13 +11,12 @@
 #include <atomic>
 #include <thread>
 
-// status: portaudio c++ seems to be segfaulting like a mfer. try the sine.cxx example and see if i get the same thing
 #include "portaudiocpp/PortAudioCpp.hxx"
 
 #include "circ_buf.h"
 
 constexpr size_t SINESTATE_BUF_SIZE = 1024;
-constexpr double SAMPLE_RATE_HZ = 44100;
+constexpr double SAMPLE_RATE_HZ = 48000;
 constexpr double SAMPLE_TIME_S = 1.0 / SAMPLE_RATE_HZ;
 constexpr double SAMPLE_TIME_RAD = SAMPLE_TIME_S * 2 * std::numbers::pi;
 
@@ -32,12 +31,11 @@ public: // todo: i don't think everything needs to be public
     CircBuf1Min circ_buf;
 
     ToneGenerator(double freq) : program_running(false), 
-        time_rad(0.0), freq_hz(freq), circ_buf() {}
+        time_rad(0.0), freq_hz(freq), circ_buf(0.0, 4096) {}
 
     int pa_callback(const void *input, void *output, unsigned long frameCount,
                     const PaStreamCallbackTimeInfo *timeInfo,
                     PaStreamCallbackFlags statusFlags) {
-
         assert(output != NULL);
 
         // for some reason the memory layout of the callback is different between the C and C++??
@@ -74,53 +72,30 @@ void sine_cli(double f) {
     portaudio::AutoSystem autoSys;
     portaudio::System &sys = portaudio::System::instance();
 
+    std::cout << "Available devies:" << std::endl;
+    for (auto i = sys.devicesBegin(); i != sys.devicesEnd(); ++i) {
+        portaudio::Device &dev = *i;
+        std::cout << dev.index() << ": " << dev.name() << std::endl;
+    }
+
+    PaDeviceIndex dev_idx;
+    std::cout << "Select device: ";
+    std::cin >> dev_idx;
+    portaudio::Device &device = sys.deviceByIndex(dev_idx);
+
     // set up stream params
     portaudio::DirectionSpecificStreamParameters outParams(
-        sys.defaultOutputDevice(), 2, portaudio::FLOAT32, false,
-        sys.defaultOutputDevice().defaultLowOutputLatency(), NULL);
+        device, 2, portaudio::FLOAT32, false,
+        device.defaultLowOutputLatency(), NULL);
+
+    // setting a constant buffer size instead of paFramesPerBufferUnspecified fixed
+    // distortion after opening stream when playing something else on same device
     const portaudio::StreamParameters params(
         portaudio::DirectionSpecificStreamParameters::null(), outParams,
-        SAMPLE_RATE_HZ, paFramesPerBufferUnspecified, paNoFlag);
+        SAMPLE_RATE_HZ, 256, paNoFlag);
 
     // create and open stream, set callback
     portaudio::MemFunCallbackStream<ToneGenerator> stream(params, gen, &ToneGenerator::pa_callback);
-
-    // PaDeviceIndex n_devices = Pa_GetDeviceCount();
-    // if (n_devices < 0) {
-    //     Pa_Terminate();
-    //     return 1;
-    //     std::cout << "ERROR: Pa_GetDeviceCount returned " << n_devices << std::endl;
-    // }
-
-    // PaStreamParameters output_params = {
-    //     .device = 0,
-    //     .channelCount = 2,
-    //     .sampleFormat = paFloat32,
-    //     .suggestedLatency = 0.0,
-    //     .hostApiSpecificStreamInfo = NULL
-    // };
-
-    // std::cout << "Available devies:" << std::endl;
-    // for (PaDeviceIndex i = 0; i < n_devices; i++) {
-    //     const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
-    //     output_params.device = i;
-    //     output_params.suggestedLatency = info->defaultLowOutputLatency;
-    //     if (Pa_IsFormatSupported(NULL, &output_params, SAMPLE_RATE_HZ) != 0) {
-    //         break;
-    //     }
-    //     std::cout << i << ": " << info->name << std::endl;
-    // }
-
-    // PaDeviceIndex device;
-    // std::cout << "Select device: ";
-    // std::cin >> device;
-    // output_params.device = device;
-    // output_params.suggestedLatency = Pa_GetDeviceInfo(device)->defaultLowOutputLatency;
-    // std::cout << std::endl;
-
-    // err = Pa_OpenStream(&stream, NULL, &output_params, SAMPLE_RATE_HZ, paFramesPerBufferUnspecified,
-    //                     paNoFlag, sine_callback, (void*)&state);
-
 
     bool playing = false;
     gen.program_running = true;
