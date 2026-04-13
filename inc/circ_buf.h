@@ -14,15 +14,17 @@ class CircBuf1Min {
 public:
     constexpr static size_t CIRCBUF_DEFAULT_SIZE = 1024;
 
-    CircBuf1Min(float start_sample, size_t capacity);
+    const size_t capacity;
+
+    CircBuf1Min(float start_sample, size_t cap);
     CircBuf1Min();
     float pop();
     int push(float sample); // returns 0 if success, 1 if buffer full
+    size_t size();
 
 private:
     std::vector<float> _data;
     size_t _out_idx;
     size_t _in_idx;
-    size_t _capacity;
     std::atomic_size_t _size;
 };
