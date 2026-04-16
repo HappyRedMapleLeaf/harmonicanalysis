@@ -21,7 +21,7 @@ cli live playback with portaudio\
 done on apr 12 2026
 
 ### step 2
-qt gui with live playback and sliders for fundamental frequency and number of overtones
+gui with live playback and sliders for fundamental frequency and number of overtones
 
 ### step 3
 displays of what one period's waveform looks like
