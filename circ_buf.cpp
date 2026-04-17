@@ -45,7 +45,7 @@ size_t CircBuf1Min::size() {
 }
 
 CircBuf1Min::CircBuf1Min(float start_sample, size_t cap) : 
-        _data(capacity), capacity(cap), _size(1), _out_idx(0), _in_idx(1) {
+        capacity(cap), _data(capacity), _out_idx(0), _in_idx(1), _size(1) {
     this->_data[0] = start_sample;
 }
 
