@@ -29,21 +29,26 @@ struct AudioSettings {
     bool playing;
     float frequency;
     float amplitude;
+    int harmonics;
+    bool ideal_sawtooth;
 };
 
 // double buffer for one-directional lock-free data transfer between threads
 template<typename T>
 struct Shared {
 public:
+    // written by producer
     T fresh;
+
+    // read by consumer
     T stinky;
 
-    // must always be called by producer
+    // called by producer
     void refresh_after_write() {
         this->dirty.store(true);
     }
 
-    // must always be called by consumer
+    // called by consumer
     void refresh_before_read() {
         if (this->dirty.exchange(false)) {
             this->stinky = this->fresh;

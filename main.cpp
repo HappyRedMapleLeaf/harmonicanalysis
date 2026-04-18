@@ -26,7 +26,10 @@ int main(int, char**) {
 
     // create glfw window
     float main_scale = ImGui_ImplGlfw_GetContentScaleForMonitor(glfwGetPrimaryMonitor()); // Valid on GLFW 3.3+ only
-    GLFWwindow* window = glfwCreateWindow((int)(1280 * main_scale), (int)(800 * main_scale), "Dear ImGui GLFW+OpenGL3 example", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(
+        (int)(1280 * main_scale), (int)(800 * main_scale),
+        "playing with waves", nullptr, nullptr
+    );
     if (window == nullptr)
         return 1;
     glfwMakeContextCurrent(window);
@@ -36,25 +39,31 @@ int main(int, char**) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.IniFilename = NULL;
+    io.LogFilename = NULL;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsLight();
     ImGuiStyle& style = ImGui::GetStyle();
     style.ScaleAllSizes(main_scale);
     style.FontScaleDpi = main_scale;
+    style.FontScaleMain = 1.5;
 
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
+    // set up audio thread
     Shared<AudioSettings> settings;
-    settings.fresh = {
+    AudioSettings &s = settings.fresh;
+    s = {
         .stop = false,
         .playing = false,
         .frequency = 440.0,
-        .amplitude = 0.5
+        .amplitude = 0.5,
+        .harmonics = 1,
+        .ideal_sawtooth = false
     };
     settings.refresh_after_write();
-
     std::thread audio_thread(audio_thread_func, std::ref(settings));
 
     // Main loop
@@ -70,18 +79,32 @@ int main(int, char**) {
         ImGui::NewFrame();
 
         {
+            const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x, main_viewport->WorkPos.y), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(400, 250), ImGuiCond_FirstUseEver);
+            
             ImGui::Begin("Controls");
 
             bool settings_changed = false;
-            settings_changed |= ImGui::SliderFloat("amplitude", &settings.fresh.amplitude, 0.0f, 1.0f);
-            settings_changed |= ImGui::SliderFloat("frequency", &settings.fresh.frequency, 10.0f, 10000.0f);
-            settings_changed |= ImGui::Checkbox("Playing", &settings.fresh.playing);
+            settings_changed |= ImGui::SliderFloat("amplitude", &s.amplitude,
+                0.0f, 1.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+            settings_changed |= ImGui::SliderFloat("frequency", &s.frequency,
+                25.0f, 10000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+            settings_changed |= ImGui::SliderInt("harmonics", &s.harmonics,
+                1, 1000, "%d", ImGuiSliderFlags_Logarithmic);
+
+            if (ImGui::BeginTable("checks", 2)) {
+                ImGui::TableNextColumn();
+                settings_changed |= ImGui::Checkbox("playing", &s.playing);
+                ImGui::TableNextColumn();
+                settings_changed |= ImGui::Checkbox("ideal", &s.ideal_sawtooth);
+                ImGui::EndTable();
+            }
 
             if (settings_changed) {
                 settings.refresh_after_write();
             }
 
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
             ImGui::End();
         }
 

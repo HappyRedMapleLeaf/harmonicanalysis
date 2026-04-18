@@ -49,16 +49,34 @@ void audio_thread_func(Shared<AudioSettings> &settings) {
         settings.refresh_before_read();
         AudioSettings &s = settings.stinky;
 
-        // generate shit and fill buffer
-        if (!s.playing) {
+        if (!s.playing || player.push(next_sample) != 0) {
             continue;
         }
 
-        if (player.push(next_sample) != 0) {
-            continue;
-        }
+        if (s.ideal_sawtooth) {
+            // lol??
+            double time_s = time_rad / (2 * std::numbers::pi);
+            double period_s = 1 / s.frequency;
+            double phase = std::fmod(time_s - (period_s / 2.0), period_s);
+            next_sample = ((s.amplitude * 2.0 * phase) / period_s) - s.amplitude;
+        } else {
+            // sawtooth harmonic amplitudes =
+            // (2*A)/(pi*n), negative if n is even (n = 1 is fundamental)
+            const double amp2_pi = 2.0 * s.amplitude / std::numbers::pi;
 
-        next_sample = s.amplitude * std::sin(time_rad * s.frequency);
+            next_sample = 0.0;
+            double current_freq = 0.0;
+            for (int n = 1; n <= s.harmonics; n++) {
+                current_freq += s.frequency; // set up next harmonic
+
+                double amplitude = amp2_pi / n;
+                if (n % 2 == 0) {
+                    amplitude = -amplitude;
+                }
+
+                next_sample += amplitude * std::sin(time_rad * current_freq);
+            }
+        }
 
         time_rad += SAMPLE_TIME_RAD;
     }
