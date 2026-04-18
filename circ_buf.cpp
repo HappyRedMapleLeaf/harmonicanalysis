@@ -1,4 +1,4 @@
-#include "circ_buf.h"
+#include "circ_buf.hpp"
 
 #include <cassert>
 

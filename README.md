@@ -22,6 +22,7 @@ done on apr 12 2026
 
 ### step 2
 gui with live playback and sliders for fundamental frequency and number of overtones
+todo: address all todos and also the frequency slider is clicky
 
 ### step 3
 displays of what one period's waveform looks like

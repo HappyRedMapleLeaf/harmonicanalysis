@@ -18,11 +18,11 @@ OUT_DIR = $(BUILD_DIR)/out
 IMGUI_BUILD_DIR = $(BUILD_DIR)/imgui
 
 IMGUI_OBJS = $(patsubst %.cpp, $(IMGUI_BUILD_DIR)/%.o, $(notdir $(IMGUI_SOURCES)))
-MAIN_OBJS  = $(BUILD_DIR)/main.o $(BUILD_DIR)/circ_buf.o
+MAIN_OBJS  = $(BUILD_DIR)/main.o $(BUILD_DIR)/circ_buf.o $(BUILD_DIR)/audio.o
 
 .PHONY: all clean
 
-all: $(OUT_DIR)/test $(OUT_DIR)/app
+all: $(OUT_DIR)/app
 
 clean:
 	rm -rf $(BUILD_DIR)
@@ -30,20 +30,18 @@ clean:
 # link
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
-$(OUT_DIR)/app: $(MAIN_OBJS) | $(OUT_DIR)
-	g++ $^ $(PA_SOURCES) $(PA_OPTIONS) -o $@ -std=c++23
-$(OUT_DIR)/test: $(BUILD_DIR)/imgui_test.o $(IMGUI_OBJS) | $(OUT_DIR)
-	g++ $^ $(IMGUI_OPTIONS) -o $@
+$(OUT_DIR)/app: $(MAIN_OBJS) $(IMGUI_OBJS) | $(OUT_DIR)
+	g++ $^ $(PA_SOURCES) $(PA_OPTIONS) $(IMGUI_OPTIONS) -o $@ -std=c++23
 
 # build my stuff
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 $(BUILD_DIR)/main.o: main.cpp | $(BUILD_DIR)
-	g++ -c $< $(PA_INCLUDES) $(INCLUDES) $(OPTIONS) -MMD -MP -std=c++23 -o $@
+	g++ -c $< $(PA_INCLUDES) $(IMGUI_INCLUDES) $(INCLUDES) $(OPTIONS) -MMD -MP -std=c++23 -o $@
 $(BUILD_DIR)/circ_buf.o: circ_buf.cpp | $(BUILD_DIR)
 	g++ -c $< $(INCLUDES) $(OPTIONS) -MMD -MP -std=c++23 -o $@
-$(BUILD_DIR)/imgui_test.o: imgui_test.cpp | $(BUILD_DIR)
-	g++ -c $< $(IMGUI_INCLUDES) $(INCLUDES) $(OPTIONS) -MMD -MP -o $@
+$(BUILD_DIR)/audio.o: audio.cpp | $(BUILD_DIR)
+	g++ -c $< $(PA_INCLUDES) $(INCLUDES) $(OPTIONS) -MMD -MP -std=c++23 -o $@
 
 # build library stuff: imgui
 $(IMGUI_BUILD_DIR):
@@ -56,4 +54,4 @@ $(IMGUI_BUILD_DIR)/%.o: $(IMGUI_DIR)/backends/%.cpp | $(IMGUI_BUILD_DIR)
 # check for headers
 -include $(MAIN_OBJS:.o=.d)
 -include $(IMGUI_OBJS:.o=.d)
--include $(BUILD_DIR)/main.d $(BUILD_DIR)/imgui_test.d
+-include $(BUILD_DIR)/main.d
