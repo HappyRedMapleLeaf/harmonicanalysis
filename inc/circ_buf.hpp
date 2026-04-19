@@ -4,6 +4,11 @@
 #include <cstdlib>
 #include <atomic>
 
+/*
+ * contains various synchronized circular buffer implementations
+ * for different situations
+ */
+
 // has the property that there is always at least 1 element so that if consumer is faster than producer,
 // we give the consumer the last element but don't remove it
 //
@@ -12,12 +17,9 @@
 // such that push/pop at the same time is okay, but push/push and pop/pop has not been considered.
 class CircBuf1Min {
 public:
-    constexpr static size_t CIRCBUF_DEFAULT_SIZE = 1024;
-
     const size_t capacity;
 
     CircBuf1Min(float start_sample, size_t cap);
-    CircBuf1Min();
     float pop();
     int push(float sample); // returns 0 if success, 1 if buffer full
     size_t size();
@@ -27,4 +29,29 @@ private:
     size_t _out_idx;
     size_t _in_idx;
     std::atomic_size_t _size;
+};
+
+class CircBufInOnly {
+public:
+    const size_t capacity;
+
+    // if freeze is true, producer can't add data
+    // if freeze is false, reader can't copy data
+    // currently does not support reader freezing
+    std::atomic_bool freeze;
+
+    CircBufInOnly(size_t cap);
+
+    // return: 0 if pushed, 1 if frozen
+    int push(float sample);
+
+    // return: 0 if copied, 1 if not frozen
+    int copy(std::vector<float> &out);
+
+    // buf[0] is latest sample, buf[1] is second latest, etc
+    float operator[](size_t index);
+
+private:
+    std::vector<float> _data;
+    size_t _in_idx;
 };

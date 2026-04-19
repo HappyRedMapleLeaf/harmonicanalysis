@@ -26,6 +26,7 @@ done on apr 18 2026
 
 ### step 3
 displays of what one period's waveform looks like
+todo: float or double?
 
 ### step 4
 visual fft

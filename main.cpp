@@ -1,6 +1,7 @@
 #include <iostream>
 #include <thread>
 #include <functional>
+#include <algorithm>
 
 #include <GLFW/glfw3.h>
 #include "imgui.h"
@@ -8,6 +9,8 @@
 #include "imgui_impl_opengl3.h"
 
 #include "audio.hpp"
+
+constexpr size_t CAPTURE_SIZE = SAMPLE_RATE_HZ * 0.01;
 
 static void glfw_error_callback(int error, const char* description) {
     std::cerr << "GLFW Error " << error << ": " << description << std::endl;
@@ -64,7 +67,10 @@ int main(int, char**) {
         .ideal_sawtooth = false
     };
     settings.refresh_after_write();
-    std::thread audio_thread(audio_thread_func, std::ref(settings));
+    CircBufInOnly capture(CAPTURE_SIZE);
+    std::thread audio_thread(audio_thread_func, std::ref(settings), std::ref(capture));
+
+    std::vector<float> capture_data(CAPTURE_SIZE);
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
@@ -77,12 +83,11 @@ int main(int, char**) {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+        const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
 
         {
-            const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x, main_viewport->WorkPos.y), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(400, 250), ImGuiCond_FirstUseEver);
-            
             ImGui::Begin("Controls");
 
             bool settings_changed = false;
@@ -108,6 +113,49 @@ int main(int, char**) {
             ImGui::End();
         }
 
+        // todo: dynamically change capture width (sounds hard asf)
+        // todo: figure out why we get blips when changing frequencies
+        //       and distirtion at high frequencies even with ideal setting
+        if (capture.freeze) {
+            capture.copy(capture_data);
+            capture.freeze = false;
+        }
+
+        // draw captured waveform
+        {
+            ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 400, main_viewport->WorkPos.y), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(600, 600), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Scope");
+
+            // get current window info
+            const ImVec2 contentSize = ImGui::GetContentRegionAvail();
+            const ImVec2 windowPos = ImGui::GetCursorScreenPos();
+
+            float mag = 1.0;
+            if (!capture_data.empty()) {
+                auto minmax = std::minmax_element(capture_data.begin(), capture_data.end());
+                mag = std::max(std::abs(*(minmax.first)), std::abs(*(minmax.second)));
+                mag = std::max(mag, 0.01f);
+            }
+
+            float time_per_pixel = (float) CAPTURE_SIZE / contentSize.x;
+            float pixels_per_value = contentSize.y / (mag * 2.0);
+
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            draw_list->PathClear();
+            for (int i = 0; i < contentSize.x; i++) {
+                size_t index = std::clamp(static_cast<size_t>(i * time_per_pixel), (size_t) 0, CAPTURE_SIZE - 1);
+                float raw_value = capture_data[index];
+                draw_list->PathLineTo(ImVec2(
+                    (float) i + windowPos.x,
+                    -raw_value * pixels_per_value + (contentSize.y / 2.0) + windowPos.y
+                ));
+            }
+            draw_list->PathStroke(ImColor(100, 100, 255), 0, 1.0);
+
+            ImGui::End();
+        }
+
         // Rendering
         ImGui::Render();
         int display_w, display_h;
@@ -122,7 +170,9 @@ int main(int, char**) {
     // Cleanup
     settings.fresh.stop = true;
     settings.refresh_after_write();
+    capture.freeze.store(false);
     audio_thread.join();
+
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();

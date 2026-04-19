@@ -45,13 +45,13 @@ public:
 
     // called by producer
     void refresh_after_write() {
-        this->dirty.store(true);
+        dirty.store(true);
     }
 
     // called by consumer
     void refresh_before_read() {
-        if (this->dirty.exchange(false)) {
-            this->stinky = this->fresh;
+        if (dirty.exchange(false)) {
+            stinky = fresh;
         }
     }
 
@@ -59,4 +59,4 @@ private:
     std::atomic_bool dirty{false};
 };
 
-void audio_thread_func(Shared<AudioSettings> &settings);
+void audio_thread_func(Shared<AudioSettings> &settings, CircBufInOnly &out);
