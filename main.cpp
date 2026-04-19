@@ -2,6 +2,7 @@
 #include <thread>
 #include <functional>
 #include <algorithm>
+#include <cmath>
 
 #include <GLFW/glfw3.h>
 #include "imgui.h"
@@ -10,7 +11,7 @@
 
 #include "audio.hpp"
 
-constexpr size_t CAPTURE_SIZE = SAMPLE_RATE_HZ * 0.01;
+constexpr size_t CAPTURE_SIZE = SAMPLE_RATE_HZ * 0.001;
 
 static void glfw_error_callback(int error, const char* description) {
     std::cerr << "GLFW Error " << error << ": " << description << std::endl;
@@ -56,7 +57,8 @@ int main(int, char**) {
     ImGui_ImplOpenGL3_Init(glsl_version);
 
     // set up audio thread
-    Shared<AudioSettings> settings;
+    AudioGuiInterface shared_data(CAPTURE_SIZE);
+    Shared<AudioSettings> &settings = shared_data.settings;
     AudioSettings &s = settings.fresh;
     s = {
         .stop = false,
@@ -67,8 +69,8 @@ int main(int, char**) {
         .ideal_sawtooth = false
     };
     settings.refresh_after_write();
-    CircBufInOnly capture(CAPTURE_SIZE);
-    std::thread audio_thread(audio_thread_func, std::ref(settings), std::ref(capture));
+    CircBufInOnly &capture = shared_data.capture;
+    std::thread audio_thread(audio_thread_func, std::ref(shared_data));
 
     std::vector<float> capture_data(CAPTURE_SIZE);
 
@@ -87,7 +89,7 @@ int main(int, char**) {
 
         {
             ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x, main_viewport->WorkPos.y), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(400, 250), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(500, 250), ImGuiCond_FirstUseEver);
             ImGui::Begin("Controls");
 
             bool settings_changed = false;
@@ -110,12 +112,14 @@ int main(int, char**) {
                 settings.refresh_after_write();
             }
 
+            ImGui::Text("Highest harmonic before aliasing: %d",
+                static_cast<int>(std::floor(SAMPLE_RATE_HZ / 2.0 / s.frequency))
+            );
+
             ImGui::End();
         }
 
         // todo: dynamically change capture width (sounds hard asf)
-        // todo: figure out why we get blips when changing frequencies
-        //       and distirtion at high frequencies even with ideal setting
         if (capture.freeze) {
             capture.copy(capture_data);
             capture.freeze = false;
@@ -123,8 +127,8 @@ int main(int, char**) {
 
         // draw captured waveform
         {
-            ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 400, main_viewport->WorkPos.y), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(600, 600), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x, main_viewport->WorkPos.y + 250), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(1280, 500), ImGuiCond_FirstUseEver);
             ImGui::Begin("Scope");
 
             // get current window info
@@ -152,6 +156,16 @@ int main(int, char**) {
                 ));
             }
             draw_list->PathStroke(ImColor(100, 100, 255), 0, 1.0);
+
+            ImGui::End();
+        }
+
+        {
+            ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x + 500, main_viewport->WorkPos.y), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(500, 250), ImGuiCond_FirstUseEver);
+            ImGui::Begin("Stats");
+            
+            ImGui::Text("GUI %.3f ms/frame\nAudio %ld ms/loop", 1000.0f / io.Framerate, shared_data.audio_ns_per_frame.load() / 1000000);
 
             ImGui::End();
         }

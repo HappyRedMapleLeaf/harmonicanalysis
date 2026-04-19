@@ -26,7 +26,14 @@ done on apr 18 2026
 
 ### step 3
 displays of what one period's waveform looks like
-todo: float or double?
+
+### when i feel like it, check out these:
+**aliasing reduction methods**
+https://ccrma.stanford.edu/~stilti/papers/blit.pdf\
+https://www.kvraudio.com/forum/viewtopic.php?t=375517\
+https://www.cs.cmu.edu/~eli/papers/icmc01-hardsync.pdf\
+linked by:\
+https://www.martin-finke.de/articles/audio-plugins-018-polyblep-oscillator/
 
 ### step 4
 visual fft

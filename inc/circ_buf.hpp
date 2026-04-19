@@ -4,9 +4,12 @@
 #include <cstdlib>
 #include <atomic>
 
+#include "shared.hpp"
+
 /*
  * contains various synchronized circular buffer implementations
  * for different situations
+ * is currently kind of messy, very specialized and has weird rules
  */
 
 // has the property that there is always at least 1 element so that if consumer is faster than producer,
@@ -31,8 +34,14 @@ private:
     std::atomic_size_t _size;
 };
 
+// producer is slave, reader is master
+// keeps holds last n elements
 class CircBufInOnly {
 public:
+
+
+
+
     const size_t capacity;
 
     // if freeze is true, producer can't add data
@@ -49,6 +58,7 @@ public:
     int copy(std::vector<float> &out);
 
     // buf[0] is latest sample, buf[1] is second latest, etc
+    // only for use by producer
     float operator[](size_t index);
 
 private:

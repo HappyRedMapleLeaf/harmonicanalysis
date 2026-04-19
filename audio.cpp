@@ -4,6 +4,10 @@
 #include <cmath>
 #include <chrono>
 
+#include "timer.hpp"
+
+using namespace std::chrono_literals;
+
 AudioPlayer::AudioPlayer() : CircBuf1Min(0.0, 2048) {}
 
 int AudioPlayer::pa_callback(const void *input, void *output, unsigned long frameCount,
@@ -21,7 +25,10 @@ int AudioPlayer::pa_callback(const void *input, void *output, unsigned long fram
     return paContinue;
 }
 
-void audio_thread_func(Shared<AudioSettings> &in, CircBufInOnly &out) {
+void audio_thread_func(AudioGuiInterface &data) {
+    auto &s = data.settings.stinky;
+    auto &capture = data.capture;
+
     AudioPlayer player{};
 
     // global portaudio init
@@ -44,27 +51,45 @@ void audio_thread_func(Shared<AudioSettings> &in, CircBufInOnly &out) {
     portaudio::MemFunCallbackStream<AudioPlayer> stream(params, player, &AudioPlayer::pa_callback);
     stream.start();
     
-    double next_sample = 0.0;
-    double time_rad = 0.0;
+    float next_sample = 0.0;
+    float phase_rad = 0.0;
 
     // used for triggering capture
     bool above_thres = true;
-    uint64_t prev_trigger_ms = 0; // time of previous trigger
     uint64_t trigger_counter_samples = 0; // time since trigger, used to wait a
                                           // bit after triggering to capture
     bool trigger_waiting = false;
-    constexpr uint64_t TRIGGER_TIME_MAX_MS = 1000; // trigger at least this often
-    constexpr uint64_t TRIGGER_TIME_MIN_MS = 100;  // trigger holdoff
+    Timer capture_timer{};
 
-    while (!in.stinky.stop) {
+    // for performance monitoring
+    Timer loop_timer{};
+    Timer stats_update_timer{};
+
+    constexpr auto TRIGGER_TIME_MAX = 1000ms; // trigger at least this often
+    constexpr auto TRIGGER_TIME_MIN = 100ms;  // trigger holdoff
+
+    while (!s.stop) {
         // don't generate new samples if audio output buffer is full
         if (player.push(next_sample) != 0) {
             continue;
         }
 
+        auto now = std::chrono::steady_clock::now();
+
+        // performance monitoring
+        // odd results; when adding more overtones, time/loop DROPS from 5ms to 3ms
+        // hypothesis: we're always catching timer on slow loops when output buffer just opens up
+        //             makes sense why time/loop is in ms range although we know we're going
+        //             at least at 48kHz. and if normal loops take longer, these slow loops get shorter
+        // todo: once we see slowdowns, change this to update max and avg time/loop
+        if (stats_update_timer.has_elapsed(now, 100ms)) {
+            data.audio_ns_per_frame.store(loop_timer.time_elapsed(now).count());
+            stats_update_timer.update(now);
+        }
+        loop_timer.update(now);
+
         // refresh parameters from gui thread
-        in.refresh_before_read();
-        AudioSettings &s = in.stinky;
+        data.settings.refresh_before_read();
 
         // fill with 0 if not playing
         if (!s.playing) {
@@ -72,45 +97,34 @@ void audio_thread_func(Shared<AudioSettings> &in, CircBufInOnly &out) {
         } else {
             // generating sample
             if (s.ideal_sawtooth) {
-                // lol??
-                double time_s = time_rad / (2 * std::numbers::pi);
-                double period_s = 1 / s.frequency;
-                double phase = std::fmod(time_s - (period_s / 2.0), period_s);
-                next_sample = ((s.amplitude * 2.0 * phase) / period_s) - s.amplitude;
+                next_sample = phase_rad * s.amplitude / std::numbers::pi - s.amplitude;
             } else {
                 // sawtooth harmonic amplitudes =
                 // (2*A)/(pi*n), negative if n is even (n = 1 is fundamental)
-                const double amp2_pi = 2.0 * s.amplitude / std::numbers::pi;
+                const float amp2_pi = 2.0 * s.amplitude / std::numbers::pi;
 
                 next_sample = 0.0;
-                double current_freq = 0.0;
                 for (int n = 1; n <= s.harmonics; n++) {
-                    current_freq += s.frequency; // set up next harmonic
-
-                    double amplitude = amp2_pi / n;
+                    float amplitude = amp2_pi / n;
                     if (n % 2 == 0) {
                         amplitude = -amplitude;
                     }
 
-                    next_sample += amplitude * std::sin(time_rad * current_freq);
+                    next_sample += amplitude * std::sin(phase_rad * n);
                 }
             }
 
-            // incrementing timer
-            time_rad += SAMPLE_TIME_RAD;
+            // incrementing phase
+            phase_rad = std::fmod(phase_rad + SAMPLE_TIME_RAD * s.frequency, std::numbers::pi * 2);
         }
 
         // wait for gui to unset trigger flag (if it's set, it means buffer being copied)
         // this probably (definitely) sucks but it's ok
         // todo: please fucking fix this
-        while (out.freeze.load());
+        while (capture.freeze.load());
 
         // push to internal buffer
-        out.push(next_sample);
-
-        uint64_t current_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()
-        ).count();
+        capture.push(next_sample);
 
         // raise trigger flag to tell gui thread to copy data out for processing
         // trigger condition: signal must have gone from below HYST_LOW to above HYST_HIGH
@@ -124,19 +138,20 @@ void audio_thread_func(Shared<AudioSettings> &in, CircBufInOnly &out) {
             above_thres = false;
         }
 
+        // determine if we trigger
         if (!trigger_waiting && (
-                (rising_edge && current_ms - prev_trigger_ms > TRIGGER_TIME_MIN_MS) ||
-                (current_ms - prev_trigger_ms > TRIGGER_TIME_MAX_MS)
+                (rising_edge && capture_timer.has_elapsed(now, TRIGGER_TIME_MIN)) ||
+                capture_timer.has_elapsed(now, TRIGGER_TIME_MAX)
             )) {
 
             trigger_waiting = true;
-            prev_trigger_ms = current_ms;
+            capture_timer.update(now);
             trigger_counter_samples = 0;
         }
 
-        if (trigger_waiting && ++trigger_counter_samples > out.capacity / 2) {
-            out.freeze.store(true);
-            prev_trigger_ms = current_ms;
+        // if we're triggering then wait half the capture then freeze
+        if (trigger_waiting && ++trigger_counter_samples > capture.capacity / 2) {
+            capture.freeze.store(true);
             trigger_waiting = false;
         }
     }

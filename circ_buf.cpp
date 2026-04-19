@@ -7,8 +7,6 @@ CircBuf1Min::CircBuf1Min(float start_sample, size_t cap) :
     _data[0] = start_sample;
 }
 
-// todo: optimize with batch reads
-// maybe support multi producer but i can't see a world where i need to do that
 float CircBuf1Min::pop() {
     if (_size.load() == 1) {
         // since we assume only 1 thread can pop, either size is actually 1, or it is greater.

@@ -6,11 +6,12 @@
 #include "portaudiocpp/PortAudioCpp.hxx"
 
 #include "circ_buf.hpp"
+#include "shared.hpp"
 
 constexpr size_t SINESTATE_BUF_SIZE = 1024;
-constexpr double SAMPLE_RATE_HZ = 48000;
-constexpr double SAMPLE_TIME_S = 1.0 / SAMPLE_RATE_HZ;
-constexpr double SAMPLE_TIME_RAD = SAMPLE_TIME_S * 2 * std::numbers::pi;
+constexpr float SAMPLE_RATE_HZ = 48000;
+constexpr float SAMPLE_TIME_S = 1.0 / SAMPLE_RATE_HZ;
+constexpr float SAMPLE_TIME_RAD = SAMPLE_TIME_S * 2 * std::numbers::pi;
 
 // shared between audio generator thread and portaudio callback
 // contains portaudio callback function
@@ -33,30 +34,13 @@ struct AudioSettings {
     bool ideal_sawtooth;
 };
 
-// double buffer for one-directional lock-free data transfer between threads
-template<typename T>
-struct Shared {
-public:
-    // written by producer
-    T fresh;
+struct AudioGuiInterface {
+    Shared<AudioSettings> settings;
+    CircBufInOnly capture;
+    std::atomic_int64_t audio_ns_per_frame;
 
-    // read by consumer
-    T stinky;
-
-    // called by producer
-    void refresh_after_write() {
-        dirty.store(true);
-    }
-
-    // called by consumer
-    void refresh_before_read() {
-        if (dirty.exchange(false)) {
-            stinky = fresh;
-        }
-    }
-
-private:
-    std::atomic_bool dirty{false};
+    // this is temporary
+    AudioGuiInterface(size_t cap_size) : capture(cap_size) {}
 };
 
-void audio_thread_func(Shared<AudioSettings> &settings, CircBufInOnly &out);
+void audio_thread_func(AudioGuiInterface &data);
