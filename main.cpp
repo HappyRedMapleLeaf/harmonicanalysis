@@ -59,8 +59,7 @@ int main(int, char**) {
     // set up audio thread
     AudioGuiInterface shared_data(CAPTURE_SIZE);
     Shared<AudioSettings> &settings = shared_data.settings;
-    AudioSettings &s = settings.fresh;
-    s = {
+    settings.in_ref() = {
         .stop = false,
         .playing = false,
         .frequency = 440.0,
@@ -69,6 +68,7 @@ int main(int, char**) {
         .ideal_sawtooth = false
     };
     settings.refresh_after_write();
+    
     CircBufInOnly &capture = shared_data.capture;
     std::thread audio_thread(audio_thread_func, std::ref(shared_data));
 
@@ -91,6 +91,8 @@ int main(int, char**) {
             ImGui::SetNextWindowPos(ImVec2(main_viewport->WorkPos.x, main_viewport->WorkPos.y), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(500, 250), ImGuiCond_FirstUseEver);
             ImGui::Begin("Controls");
+
+            AudioSettings &s = settings.in_ref();
 
             bool settings_changed = false;
             settings_changed |= ImGui::SliderFloat("amplitude", &s.amplitude,
@@ -165,7 +167,12 @@ int main(int, char**) {
             ImGui::SetNextWindowSize(ImVec2(500, 250), ImGuiCond_FirstUseEver);
             ImGui::Begin("Stats");
             
-            ImGui::Text("GUI %.3f ms/frame\nAudio %ld ms/loop", 1000.0f / io.Framerate, shared_data.audio_ns_per_frame.load() / 1000000);
+            shared_data.stats.refresh_before_read();
+            ImGui::Text(
+                "GUI %.3f ms/frame\nAudio %ld ms/loop",
+                1000.0f / io.Framerate,
+                shared_data.stats.out_ref().ns_per_frame / 1000000
+            );
 
             ImGui::End();
         }
@@ -182,7 +189,7 @@ int main(int, char**) {
     }
 
     // Cleanup
-    settings.fresh.stop = true;
+    settings.in_ref().stop = true;
     settings.refresh_after_write();
     capture.freeze.store(false);
     audio_thread.join();

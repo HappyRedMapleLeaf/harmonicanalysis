@@ -34,34 +34,24 @@ private:
     std::atomic_size_t _size;
 };
 
-// producer is slave, reader is master
-// keeps holds last n elements
 class CircBufInOnly {
 public:
+    CircBufInOnly(size_t init_size);
 
+    // returns oldest value that was kicked out
+    float push(float sample);
 
-
-
-    const size_t capacity;
-
-    // if freeze is true, producer can't add data
-    // if freeze is false, reader can't copy data
-    // currently does not support reader freezing
-    std::atomic_bool freeze;
-
-    CircBufInOnly(size_t cap);
-
-    // return: 0 if pushed, 1 if frozen
-    int push(float sample);
-
-    // return: 0 if copied, 1 if not frozen
-    int copy(std::vector<float> &out);
+    void resize(size_t new_size);
 
     // buf[0] is latest sample, buf[1] is second latest, etc
     // only for use by producer
     float operator[](size_t index);
 
+    size_t in_idx();
+    size_t size();
+
 private:
+    size_t _size;
     std::vector<float> _data;
     size_t _in_idx;
 };

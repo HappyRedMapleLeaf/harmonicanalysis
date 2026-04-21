@@ -8,28 +8,38 @@
 
 using namespace std::chrono_literals;
 
-AudioPlayer::AudioPlayer() : CircBuf1Min(0.0, 2048) {}
+namespace {
 
-int AudioPlayer::pa_callback(const void *input, void *output, unsigned long frameCount,
-        const PaStreamCallbackTimeInfo *timeInfo, PaStreamCallbackFlags statusFlags) {
-    assert(output != NULL);
+// shared between audio generator thread and portaudio callback
+// contains portaudio callback function
+// used to transfer audio samples but nothing else
+class AudioOutput : public CircBuf1Min {
+public:
+    AudioOutput() : CircBuf1Min(0.0, 2048) {}
 
-    float **out = static_cast<float**>(output);
+    int pa_callback(const void *input, void *output, unsigned long frameCount,
+                    const PaStreamCallbackTimeInfo *timeInfo,
+                    PaStreamCallbackFlags statusFlags) {
+        assert(output != NULL);
 
-    for (size_t i = 0; i < frameCount; ++i) {
-        float sample = pop();
-        out[0][i] = sample; // left
-        out[1][i] = sample; // right (same sample)
+        float **out = static_cast<float**>(output);
+
+        for (size_t i = 0; i < frameCount; ++i) {
+            float sample = pop();
+            out[0][i] = sample; // left
+            out[1][i] = sample; // right (same sample)
+        }
+
+        return paContinue;
     }
+};
 
-    return paContinue;
-}
+} // namespace
 
 void audio_thread_func(AudioGuiInterface &data) {
-    auto &s = data.settings.stinky;
-    auto &capture = data.capture;
+    CircBufInOnly &capture = data.capture;
 
-    AudioPlayer player{};
+    AudioOutput output{};
 
     // global portaudio init
     portaudio::AutoSystem autoSys;
@@ -48,7 +58,7 @@ void audio_thread_func(AudioGuiInterface &data) {
         SAMPLE_RATE_HZ, 256, paNoFlag);
 
     // create and open stream, set callback
-    portaudio::MemFunCallbackStream<AudioPlayer> stream(params, player, &AudioPlayer::pa_callback);
+    portaudio::MemFunCallbackStream<AudioOutput> stream(params, output, &AudioOutput::pa_callback);
     stream.start();
     
     float next_sample = 0.0;
@@ -68,7 +78,15 @@ void audio_thread_func(AudioGuiInterface &data) {
     constexpr auto TRIGGER_TIME_MAX = 1000ms; // trigger at least this often
     constexpr auto TRIGGER_TIME_MIN = 100ms;  // trigger holdoff
 
-    while (!s.stop) {
+    while (1) {
+        // refresh parameters from gui thread
+        data.settings.refresh_before_read();
+        AudioSettings &s = data.settings.out_ref();
+
+        if (s.stop) {
+            break;
+        }
+
         // don't generate new samples if audio output buffer is full
         if (player.push(next_sample) != 0) {
             continue;
@@ -83,13 +101,11 @@ void audio_thread_func(AudioGuiInterface &data) {
         //             at least at 48kHz. and if normal loops take longer, these slow loops get shorter
         // todo: once we see slowdowns, change this to update max and avg time/loop
         if (stats_update_timer.has_elapsed(now, 100ms)) {
-            data.audio_ns_per_frame.store(loop_timer.time_elapsed(now).count());
+            data.stats.in_ref().ns_per_frame = loop_timer.time_elapsed(now).count();
+            data.stats.refresh_after_write();
             stats_update_timer.update(now);
         }
         loop_timer.update(now);
-
-        // refresh parameters from gui thread
-        data.settings.refresh_before_read();
 
         // fill with 0 if not playing
         if (!s.playing) {

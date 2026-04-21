@@ -47,44 +47,36 @@ size_t CircBuf1Min::size() {
     return _size.load();
 }
 
-CircBufInOnly::CircBufInOnly(size_t cap) :
-        capacity(cap), freeze(false), _data(cap), _in_idx(0) {
+CircBufInOnly::CircBufInOnly(size_t init_size) :
+        _size(init_size), _data(_size), _in_idx(0) {
     std::fill(_data.begin(), _data.end(), 0.0);
 }
 
-int CircBufInOnly::push(float sample) {
-    if (freeze.load()) {
-        return 1;
-    }
+size_t CircBufInOnly::in_idx() { return _in_idx; }
+size_t CircBufInOnly::size() { return _size; }
 
+float CircBufInOnly::push(float sample) {
+    float old = _data[_in_idx];
     _data[_in_idx] = sample;
-    _in_idx = (_in_idx + 1) % capacity;
-
-    return 0;
+    _in_idx = (_in_idx + 1) % _size;
+    return old;
 }
 
-int CircBufInOnly::copy(std::vector<float> &out) {
-    if (!freeze.load()) {
-        return 1;
+void CircBufInOnly::resize(size_t new_size) {
+    assert(new_size > 0);
+    std::vector<float> new_data(new_size, 0.0);
+
+    size_t from_idx = (_size + _in_idx - 1) % _size;
+    for (size_t i = 0; i < std::min(new_size, _size); i++) {
+        new_data[new_size - 1 - i] = _data[from_idx];
+        from_idx = (_size + from_idx - 1) % _size;
     }
 
-    out.resize(capacity);
-
-    std::copy(
-        _data.begin() + _in_idx,
-        _data.end(),
-        out.begin()
-    );
-
-    std::copy(
-        _data.begin(),
-        _data.begin() + _in_idx,
-        out.begin() + (capacity - _in_idx)
-    );
-
-    return 0;
+    _in_idx = 0;
+    _size = new_size;
+    _data = std::move(new_data);
 }
 
 float CircBufInOnly::operator[](size_t index) {
-    return _data[(capacity + _in_idx - 1 - index) % capacity];
+    return _data[(_size + _in_idx - 1 - index) % _size];
 }
